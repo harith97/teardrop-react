@@ -65,6 +65,26 @@ type UserProfile = {
   isAdFree?: boolean
 }
 
+type Friend = {
+  uid: string
+  username: string
+  displayName?: string
+  avatarEmoji?: string
+  avatarColor?: string
+  isOnline?: boolean
+  lastSeen?: string
+}
+
+type FriendRequest = {
+  id: string
+  fromUid: string
+  fromUsername: string
+  fromDisplayName?: string
+  toUid: string
+  status: "pending" | "accepted" | "rejected"
+  timestamp: string
+}
+
 const ORANGE = "#FF6B35"
 const GMAPS_KEY = "AIzaSyCvIhy5tUEeLjRKgZbJ5n5qDh5-nSFoaYA"
 
@@ -230,7 +250,41 @@ export default function TeardropApp() {
   }, [page])
 
   // Cries
-  const [cries, setCries] = useState<Cry[]>(() => load<Cry[]>("td_cries_v1", []))
+  const [cries, setCries] = useState<Cry[]>(() => load<Cry[]>("td_cries_v1", [
+    // Mock cries from friends for testing
+    {
+      id: "friend_cry_1",
+      userId: "user2",
+      username: "bob",
+      name: "Bob",
+      emoji: "😢",
+      lat: 40.7128,
+      lng: -74.0060,
+      country: "United States",
+      locationTag: "New York",
+      description: "Had a rough day at work today",
+      rating: 3,
+      timestamp: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
+      likes: [],
+      comments: [],
+    },
+    {
+      id: "friend_cry_2",
+      userId: "user3",
+      username: "charlie",
+      name: "Charlie",
+      emoji: "😭",
+      lat: 34.0522,
+      lng: -118.2437,
+      country: "United States",
+      locationTag: "Los Angeles",
+      description: "Missing my family back home",
+      rating: 4,
+      timestamp: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+      likes: [],
+      comments: [],
+    }
+  ]))
   useEffect(() => save("td_cries_v1", cries), [cries])
 
   // Likes
@@ -300,6 +354,44 @@ export default function TeardropApp() {
   const [showEmotionalInsights, setShowEmotionalInsights] = useState(true)
   const [notifyNewCries, setNotifyNewCries] = useState(false)
 
+  // Friends system
+  const [friends, setFriends] = useState<Friend[]>(() => load<Friend[]>("td_friends_v1", [
+    // Mock friends for testing
+    {
+      uid: "user2",
+      username: "bob",
+      displayName: "Bob",
+      avatarEmoji: "👨",
+      avatarColor: "#4CAF50",
+    },
+    {
+      uid: "user3",
+      username: "charlie",
+      displayName: "Charlie",
+      avatarEmoji: "😊",
+      avatarColor: "#2196F3",
+    }
+  ]))
+  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(() => load<FriendRequest[]>("td_friend_requests_v1", [
+    // Mock friend requests for testing
+    {
+      id: "mock_request_1",
+      fromUid: "user1",
+      fromUsername: "alice",
+      fromDisplayName: "Alice",
+      toUid: "current_user",
+      status: "pending",
+      timestamp: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+    }
+  ]))
+  const [addFriendsOpen, setAddFriendsOpen] = useState(false)
+  const [searchUsername, setSearchUsername] = useState("")
+  const [searchResults, setSearchResults] = useState<Friend[]>([])
+  const [searching, setSearching] = useState(false)
+
+  useEffect(() => save("td_friends_v1", friends), [friends])
+  useEffect(() => save("td_friend_requests_v1", friendRequests), [friendRequests])
+
   // Settings example
   const [notifyAchievements, setNotifyAchievements] = useState<boolean>(() => load("td_notify_achievements_v1", true))
   useEffect(() => save("td_notify_achievements_v1", notifyAchievements), [notifyAchievements])
@@ -330,6 +422,90 @@ export default function TeardropApp() {
     })
     return () => unsub()
   }, [])
+
+  // Friends functions
+  async function searchUsers(username: string) {
+    if (!username.trim() || !isLoggedIn || !db) return
+    
+    setSearching(true)
+    try {
+      // In a real app, you'd query Firestore
+      // For now, we'll simulate with mock data
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      const mockUsers: Friend[] = [
+        { uid: "user1", username: "alice", displayName: "Alice", avatarEmoji: "👩", avatarColor: "#FF6B35" },
+        { uid: "user2", username: "bob", displayName: "Bob", avatarEmoji: "👨", avatarColor: "#4CAF50" },
+        { uid: "user3", username: "charlie", displayName: "Charlie", avatarEmoji: "😊", avatarColor: "#2196F3" },
+      ].filter(user => 
+        user.username.toLowerCase().includes(username.toLowerCase()) &&
+        user.uid !== user?.uid
+      )
+      
+      setSearchResults(mockUsers)
+    } catch (error) {
+      console.error("Error searching users:", error)
+      setSearchResults([])
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  async function sendFriendRequest(toUid: string, toUsername: string) {
+    if (!isLoggedIn || !user) return
+    
+    const request: FriendRequest = {
+      id: `${user.uid}_${toUid}_${Date.now()}`,
+      fromUid: user.uid,
+      fromUsername: user.username,
+      toUid,
+      status: "pending",
+      timestamp: new Date().toISOString(),
+    }
+    
+    setFriendRequests(prev => [...prev, request])
+    
+    // In a real app, you'd save to Firestore
+    console.log("Friend request sent:", request)
+  }
+
+  async function acceptFriendRequest(requestId: string) {
+    const request = friendRequests.find(r => r.id === requestId)
+    if (!request || !isLoggedIn) return
+    
+    // Update request status
+    setFriendRequests(prev => 
+      prev.map(r => r.id === requestId ? { ...r, status: "accepted" } : r)
+    )
+    
+    // Add to friends list
+    const newFriend: Friend = {
+      uid: request.fromUid,
+      username: request.fromUsername,
+      displayName: request.fromDisplayName,
+    }
+    
+    setFriends(prev => [...prev, newFriend])
+    
+    // In a real app, you'd update Firestore
+    console.log("Friend request accepted:", request)
+  }
+
+  async function rejectFriendRequest(requestId: string) {
+    setFriendRequests(prev => 
+      prev.map(r => r.id === requestId ? { ...r, status: "rejected" } : r)
+    )
+    
+    // In a real app, you'd update Firestore
+    console.log("Friend request rejected:", requestId)
+  }
+
+  function removeFriend(friendUid: string) {
+    setFriends(prev => prev.filter(f => f.uid !== friendUid))
+    
+    // In a real app, you'd update Firestore
+    console.log("Friend removed:", friendUid)
+  }
 
   function signOut() {
     fbSignOut(auth)
@@ -641,6 +817,15 @@ export default function TeardropApp() {
       <div className="fixed top-0 left-0 right-0 z-50 bg-[rgba(26,26,26,0.95)] backdrop-blur border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="font-bold text-sm sm:text-base">{headerTitle}</div>
         <div className="flex items-center gap-2">
+          {page === "feed" && isLoggedIn && (
+            <Button
+              className="rounded-lg font-semibold px-4 py-2"
+              style={{ background: ORANGE }}
+              onClick={() => setAddFriendsOpen(true)}
+            >
+              Add Friends
+            </Button>
+          )}
           {page === "profile" && (
             <Button
               variant="outline"
@@ -669,11 +854,11 @@ export default function TeardropApp() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 mt-[60px] mb-[80px] overflow-hidden">
+      <div className={cn("flex-1 mb-[80px] overflow-hidden", page === "map" ? "mt-0" : "mt-[60px]")}>
         {/* Map Page */}
         <section className={cn("h-full", page === "map" ? "block" : "hidden")}>
           <div className="h-full relative">
-            <div className="h-[calc(100vh-180px)]">
+            <div className="absolute inset-0">
               <GoogleMapView
                 apiKey={GMAPS_KEY}
                 center={center}
@@ -696,7 +881,7 @@ export default function TeardropApp() {
             </div>
 
             {/* Filter overlay */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
+            <div className="absolute top-[70px] left-1/2 -translate-x-1/2 z-10">
               <div className="bg-[rgba(26,26,26,0.9)] backdrop-blur rounded-full p-2 flex gap-2">
                 {(["global", "friends", "mine"] as const).map((f) => (
                   <Button
@@ -717,41 +902,7 @@ export default function TeardropApp() {
               </div>
             </div>
 
-            {/* Inline list below map for accessibility */}
-            <div className="px-4 py-3 space-y-2 overflow-y-auto">
-            
-              
-              {markers.length === 0 ? (
-                <div className="text-center text-zinc-400 py-6">No cries to display</div>
-              ) : (
-                markers
-                  .filter(m => m.id !== "current-location") // Exclude current location marker from list
-                  .slice(0, 10)
-                  .map((m) => {
-                    const cry = cries.find((c) => c.id === m.id)!
-                    return (
-                      <div
-                        key={m.id}
-                        className="bg-zinc-800/60 border border-zinc-800 rounded-xl p-3 cursor-pointer hover:bg-zinc-800"
-                        onClick={() => openCryInfo(cry)}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="text-2xl">{cry.emoji}</div>
-                          <div className="flex-1">
-                            <div className="font-semibold">{cry.name}</div>
-                            <div className="text-xs text-zinc-400">
-                              {cry.locationTag || cry.country} • {timeAgo(cry.timestamp)} • ⭐ {cry.rating}/5
-                            </div>
-                            {cry.description && (
-                              <div className="text-sm text-zinc-300 italic mt-1">{`"${cry.description}"`}</div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })
-              )}
-            </div>
+           
 
             {/* Place Cry button */}
             <div className="fixed bottom-[100px] left-1/2 -translate-x-1/2 z-10">
@@ -788,11 +939,99 @@ export default function TeardropApp() {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="text-center text-zinc-300 py-6">
-                <div className="text-4xl mb-2">👥</div>
-                <h3 className="text-xl font-semibold">No Friends Yet</h3>
-                <p className="text-sm text-zinc-400 mt-1">Add friends to see their emotional journeys here</p>
-              </div>
+              {friends.length === 0 ? (
+                <div className="text-center text-zinc-300 py-10">
+                  <div className="text-6xl mb-4 text-blue-300">👥</div>
+                  <h3 className="text-xl font-semibold text-white">No Friends Yet</h3>
+                  <p className="text-sm text-zinc-400 mt-1">Add friends to see their emotional journeys here</p>
+                  <Button
+                    className="mt-6 font-bold rounded-lg px-6 py-3"
+                    style={{ background: ORANGE }}
+                    onClick={() => setAddFriendsOpen(true)}
+                  >
+                    Add Your First Friend
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="text-lg font-semibold text-white mb-4">Friends' Emotional Journeys</div>
+                  
+                  {/* Friend requests section */}
+                  {friendRequests.filter(r => r.status === "pending").length > 0 && (
+                    <div className="bg-zinc-800 rounded-xl p-4 mb-4">
+                      <h4 className="text-white font-semibold mb-3">Friend Requests</h4>
+                      <div className="space-y-3">
+                        {friendRequests
+                          .filter(r => r.status === "pending")
+                          .map(request => (
+                            <div key={request.id} className="flex items-center justify-between bg-zinc-700 rounded-lg p-3">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold">
+                                  {request.fromUsername.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="text-white font-medium">@{request.fromUsername}</div>
+                                  <div className="text-xs text-zinc-400">Sent {timeAgo(request.timestamp)}</div>
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  className="bg-green-600 hover:bg-green-700"
+                                  onClick={() => acceptFriendRequest(request.id)}
+                                >
+                                  Accept
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="border-zinc-600 text-zinc-300"
+                                  onClick={() => rejectFriendRequest(request.id)}
+                                >
+                                  Decline
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Friends' cries */}
+                  <div className="space-y-3">
+                    {cries
+                      .filter(cry => friends.some(friend => friend.uid === cry.userId))
+                      .map(cry => (
+                        <div key={cry.id} className="bg-zinc-800 rounded-xl p-4">
+                          <div className="flex items-start gap-3">
+                            <div className="text-2xl">{cry.emoji}</div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-semibold text-white">{cry.name}</span>
+                                <span className="text-xs text-zinc-400">•</span>
+                                <span className="text-xs text-zinc-400">{timeAgo(cry.timestamp)}</span>
+                              </div>
+                              <div className="text-sm text-zinc-300 mb-2">
+                                {cry.locationTag || cry.country} • ⭐ {cry.rating}/5
+                              </div>
+                              {cry.description && (
+                                <div className="text-sm text-zinc-300 italic">"{cry.description}"</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+
+                  {cries.filter(cry => friends.some(friend => friend.uid === cry.userId)).length === 0 && (
+                    <div className="text-center text-zinc-400 py-8">
+                      <div className="text-4xl mb-2">😴</div>
+                      <p>Your friends haven't shared any emotional journeys yet</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              
               {/* Ad between content */}
               <AdSlot slot="5871608851" />
             </div>
@@ -872,9 +1111,22 @@ export default function TeardropApp() {
           </div>
 
           <div className="grid grid-cols-4 gap-3 mt-6">
-            <Stat card title="Cries" value={cries.filter((c) => c.userId === (user?.uid || "anonymous")).length} />
-            <Stat card title="Following" value={0} />
-            <Stat card title="Followers" value={0} />
+            <Stat 
+              card 
+              title="Cries" 
+              value={cries.filter((c) => c.userId === (user?.uid || "anonymous")).length} 
+              highlight={true}
+              onClick={() => {
+                if (!isLoggedIn) {
+                  setAuthMode("signin")
+                  setAuthOpen(true)
+                } else {
+                  setCriesModalOpen(true)
+                }
+              }}
+            />
+            <Stat card title="Following" value={friends.length} />
+            <Stat card title="Followers" value={friendRequests.filter(r => r.status === "accepted").length} />
             <Stat card title="Countries" value={statsCountries} highlight onClick={() => {
               if (!isLoggedIn) {
                 setAuthMode("signin")
@@ -938,25 +1190,7 @@ export default function TeardropApp() {
             </div>
           </div>
 
-          {/* Profile Edit Button */}
-          <div className="mt-6">
-            
-            <Button
-              variant="outline"
-              className="w-full border-2 rounded-lg bg-transparent"
-              style={{ borderColor: ORANGE, color: "white" }}
-              onClick={() => {
-                if (!isLoggedIn) {
-                  setAuthMode("signin")
-                  setAuthOpen(true)
-                } else {
-                  setCriesModalOpen(true)
-                }
-              }}
-            >
-              📜 Open History & Search
-            </Button>
-          </div>
+
         </section>
 
         {/* Inbox Page */}
@@ -1004,15 +1238,7 @@ export default function TeardropApp() {
             })}
           </div>
           
-          {/* Progress Summary */}
-          <div className="mt-6 p-4 bg-zinc-800/30 rounded-lg border border-zinc-700">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-yellow-400">
-                {Object.values(achievements).filter((a) => a.unlocked).length}/{Object.keys(achDefs).length}
-              </div>
-              <div className="text-sm text-zinc-400">Achievements Unlocked</div>
-            </div>
-          </div>
+          
         </section>
 
         {/* Settings Page */}
@@ -1938,6 +2164,112 @@ export default function TeardropApp() {
         open={premiumModalOpen}
         onOpenChange={setPremiumModalOpen}
       />
+
+      {/* Add Friends Modal */}
+      <Dialog open={addFriendsOpen} onOpenChange={setAddFriendsOpen}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold">Add Friends</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Search for users by username to add them as friends
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {/* Search input */}
+            <div className="space-y-2">
+              <Input
+                placeholder="Search by username..."
+                className="bg-zinc-800 border-zinc-700 text-white"
+                value={searchUsername}
+                onChange={(e) => setSearchUsername(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    searchUsers(searchUsername)
+                  }
+                }}
+              />
+              <Button
+                className="w-full font-semibold"
+                style={{ background: ORANGE }}
+                onClick={() => searchUsers(searchUsername)}
+                disabled={searching || !searchUsername.trim()}
+              >
+                {searching ? "Searching..." : "Search"}
+              </Button>
+            </div>
+
+            {/* Search results */}
+            {searchResults.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-white font-semibold">Search Results</h4>
+                {searchResults.map(user => (
+                  <div key={user.uid} className="flex items-center justify-between bg-zinc-800 rounded-lg p-3">
+                    <div className="flex items-center gap-3">
+                      <div 
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                        style={{ background: user.avatarColor || ORANGE }}
+                      >
+                        {user.avatarEmoji || user.username.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="text-white font-medium">@{user.username}</div>
+                        {user.displayName && (
+                          <div className="text-xs text-zinc-400">{user.displayName}</div>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => {
+                        sendFriendRequest(user.uid, user.username)
+                        setSearchResults([])
+                        setSearchUsername("")
+                      }}
+                    >
+                      Add Friend
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Current friends */}
+            {friends.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-white font-semibold">Your Friends ({friends.length})</h4>
+                {friends.map(friend => (
+                  <div key={friend.uid} className="flex items-center justify-between bg-zinc-800 rounded-lg p-3">
+                    <div className="flex items-center gap-3">
+                      <div 
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                        style={{ background: friend.avatarColor || ORANGE }}
+                      >
+                        {friend.avatarEmoji || friend.username.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="text-white font-medium">@{friend.username}</div>
+                        {friend.displayName && (
+                          <div className="text-xs text-zinc-400">{friend.displayName}</div>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-red-600 text-red-400 hover:bg-red-600 hover:text-white"
+                      onClick={() => removeFriend(friend.uid)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

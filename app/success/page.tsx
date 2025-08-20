@@ -1,11 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "../../components/ui/button"
 import Link from "next/link"
 
-export default function SuccessPage() {
+function SuccessContent() {
   const searchParams = useSearchParams()
   const [plan, setPlan] = useState<string>("")
   const [duration, setDuration] = useState<string>("")
@@ -58,5 +58,21 @@ export default function SuccessPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function SuccessPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-zinc-900 flex items-center justify-center p-4">
+        <div className="bg-zinc-800 rounded-xl p-8 max-w-md w-full text-center">
+          <div className="text-6xl mb-4">⏳</div>
+          <h1 className="text-2xl font-bold text-white mb-4">Loading...</h1>
+          <p className="text-zinc-300">Processing your payment...</p>
+        </div>
+      </div>
+    }>
+      <SuccessContent />
+    </Suspense>
   )
 }
