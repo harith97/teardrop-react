@@ -12,14 +12,10 @@ type PremiumModalProps = {
   onOpenChange: (open: boolean) => void
 }
 
-type PlanType = "ad-free" | "premium"
 type Duration = "monthly" | "3months" | "6months" | "yearly"
-type PremiumTier = "basic" | "popular" | "plus"
 
 export default function PremiumModal({ open, onOpenChange }: PremiumModalProps) {
-  const [selectedPlan, setSelectedPlan] = useState<PlanType>("premium")
   const [selectedDuration, setSelectedDuration] = useState<Duration>("monthly")
-  const [selectedTier, setSelectedTier] = useState<PremiumTier>("popular")
   const [loading, setLoading] = useState(false)
 
   const durations = [
@@ -27,12 +23,6 @@ export default function PremiumModal({ open, onOpenChange }: PremiumModalProps) 
     { id: "3months", label: "3 Months", discount: "Save 10%" },
     { id: "6months", label: "6 Months", discount: "Save 15%" },
     { id: "yearly", label: "1 Year", discount: "Save 20%" },
-  ] as const
-
-  const premiumTiers = [
-    { id: "basic", price: "$4.99", label: "Basic" },
-    { id: "popular", price: "$7.99", label: "Popular" },
-    { id: "plus", price: "$9.99", label: "Plus" },
   ] as const
 
   const handlePayment = async () => {
@@ -50,9 +40,9 @@ export default function PremiumModal({ open, onOpenChange }: PremiumModalProps) 
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          plan: selectedPlan,
+          plan: "premium",
           duration: selectedDuration,
-          tier: selectedTier,
+          tier: "default",
         }),
       })
 
@@ -79,12 +69,7 @@ export default function PremiumModal({ open, onOpenChange }: PremiumModalProps) 
   }
 
   const getPrice = () => {
-    if (selectedPlan === "ad-free") {
-      return "$2.99"
-    }
-
-    const basePrice = premiumTiers.find(t => t.id === selectedTier)?.price || "$7.99"
-    const price = parseFloat(basePrice.replace("$", ""))
+    const basePrice = 7.99 // Default tier price
     
     let multiplier = 1
     switch (selectedDuration) {
@@ -101,7 +86,7 @@ export default function PremiumModal({ open, onOpenChange }: PremiumModalProps) 
         multiplier = 1
     }
 
-    return `$${(price * multiplier).toFixed(2)}`
+    return `$${(basePrice * multiplier).toFixed(2)}`
   }
 
   return (
@@ -109,71 +94,30 @@ export default function PremiumModal({ open, onOpenChange }: PremiumModalProps) 
       <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-2xl max-h-[90vh] overflow-hidden">
         <DialogHeader className="sticky top-0 bg-zinc-900 z-10 border-b border-zinc-800 pb-4">
           <DialogTitle className="text-xl font-semibold flex items-center gap-2">
-            ✨ Choose Your Plan
+            ✨ Premium Membership
           </DialogTitle>
         </DialogHeader>
         
         <div className="overflow-y-auto max-h-[calc(90vh-120px)] px-1">
-          {/* Ad-Free Plan */}
-          <div className="mb-6">
-            <div 
-              className={`rounded-xl p-6 cursor-pointer transition-all ${
-                selectedPlan === "ad-free" 
-                  ? "bg-gradient-to-br from-orange-500 to-orange-600" 
-                  : "bg-zinc-800 hover:bg-zinc-700"
-              }`}
-              onClick={() => setSelectedPlan("ad-free")}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">🚫</span>
-                <h3 className="text-xl font-bold">Ad-Free Forever</h3>
-              </div>
-              <div className="text-3xl font-bold mb-1">$2.99</div>
-              <div className="text-zinc-300 mb-4">One-time payment</div>
-              <ul className="space-y-2 mb-6">
-                <li className="flex items-center gap-2">
-                  <span>✓</span>
-                  <span>Remove all ads permanently</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span>✓</span>
-                  <span>Clean, distraction-free experience</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span>✓</span>
-                  <span>Support Teardrop development</span>
-                </li>
-              </ul>
-              <Button
-                className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handlePayment()
-                }}
-                disabled={loading}
-              >
-                {loading ? "Processing..." : "Get Ad-Free - $2.99"}
-              </Button>
-            </div>
-          </div>
-
           {/* Premium Plan */}
-          <div>
-            <div 
-              className={`rounded-xl p-6 cursor-pointer transition-all ${
-                selectedPlan === "premium" 
-                  ? "bg-gradient-to-br from-orange-500 to-orange-600" 
-                  : "bg-zinc-800 hover:bg-zinc-700"
-              }`}
-              onClick={() => setSelectedPlan("premium")}
-            >
+          <div className="mb-6">
+            <div className="rounded-xl p-6 bg-gradient-to-br from-orange-500 to-orange-600">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">✨</span>
                 <h3 className="text-xl font-bold">Premium Membership</h3>
               </div>
-              <div className="text-zinc-300 mb-4">Everything in Ad-Free PLUS:</div>
+              <div className="text-3xl font-bold mb-1">{getPrice()}</div>
+              <div className="text-zinc-300 mb-4">
+                {selectedDuration === "monthly" ? "per month" : 
+                 selectedDuration === "3months" ? "for 3 months" :
+                 selectedDuration === "6months" ? "for 6 months" : "for 1 year"}
+              </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🚫</span>
+                  <span>Ad-Free Experience</span>
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xl">🎨</span>
                   <span>Custom Themes</span>
@@ -209,7 +153,7 @@ export default function PremiumModal({ open, onOpenChange }: PremiumModalProps) 
               </div>
 
               {/* Duration Selection */}
-              <div className="mb-4">
+              <div className="mb-6">
                 <div className="text-sm font-semibold mb-2">Select Duration:</div>
                 <div className="grid grid-cols-4 gap-2">
                   {durations.map((duration) => (
@@ -217,13 +161,10 @@ export default function PremiumModal({ open, onOpenChange }: PremiumModalProps) 
                       key={duration.id}
                       className={`p-2 rounded-lg text-sm font-medium transition-all ${
                         selectedDuration === duration.id
-                          ? "bg-orange-400 text-black"
+                          ? "bg-white text-black"
                           : "bg-zinc-700 hover:bg-zinc-600"
                       }`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedDuration(duration.id)
-                      }}
+                      onClick={() => setSelectedDuration(duration.id)}
                     >
                       <div>{duration.label}</div>
                       {duration.discount && (
@@ -234,38 +175,9 @@ export default function PremiumModal({ open, onOpenChange }: PremiumModalProps) 
                 </div>
               </div>
 
-              {/* Tier Selection */}
-              <div className="mb-4">
-                <div className="text-sm font-semibold mb-2">Select Tier:</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {premiumTiers.map((tier) => (
-                    <button
-                      key={tier.id}
-                      className={`p-3 rounded-lg text-center transition-all ${
-                        selectedTier === tier.id
-                          ? "bg-yellow-500 text-black shadow-lg"
-                          : tier.id === "popular"
-                          ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/50"
-                          : "bg-zinc-700 hover:bg-zinc-600"
-                      }`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedTier(tier.id)
-                      }}
-                    >
-                      <div className="font-bold">{tier.price}/mo</div>
-                      <div className="text-sm">{tier.label}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <Button
-                className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-bold py-3 rounded-lg"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handlePayment()
-                }}
+                className="w-full bg-white text-black hover:bg-gray-100 font-bold py-3 rounded-lg"
+                onClick={handlePayment}
                 disabled={loading}
               >
                 {loading ? "Processing..." : `Get Premium - ${getPrice()}`}

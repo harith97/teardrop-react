@@ -96,7 +96,7 @@ export async function ensureUserDoc(user: User, username?: string) {
       email: user.email,
       username: username || user.displayName || user.email?.split("@")[0] || "user",
       displayName: user.displayName || username || user.email?.split("@")[0] || "user",
-      createdAt: new Date(),
+      createdAt: user.metadata?.creationTime ? new Date(user.metadata.creationTime).toISOString() : new Date().toISOString(),
       stats: {
         cries: 0,
         following: 0,

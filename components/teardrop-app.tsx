@@ -409,7 +409,7 @@ export default function TeardropApp() {
           uid: u.uid,
           email: u.email || "",
           username: profile?.username || u.displayName || u.email?.split("@")[0] || "user",
-          createdAt: new Date().toISOString(),
+          createdAt: profile?.createdAt || u.metadata?.creationTime || new Date().toISOString(),
           isPremium: !!profile?.isPremium,
           isAdFree: !!profile?.isAdFree,
         }
