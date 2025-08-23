@@ -352,7 +352,6 @@ export default function TeardropApp() {
   // Feed settings
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [showEmotionalInsights, setShowEmotionalInsights] = useState(true)
-  const [notifyNewCries, setNotifyNewCries] = useState(false)
 
   // Friends system
   const [friends, setFriends] = useState<Friend[]>(() => load<Friend[]>("td_friends_v1", [
@@ -388,12 +387,34 @@ export default function TeardropApp() {
   const [searchUsername, setSearchUsername] = useState("")
   const [searchResults, setSearchResults] = useState<Friend[]>([])
   const [searching, setSearching] = useState(false)
+  
+  // Friends list modals
+  const [followingOpen, setFollowingOpen] = useState(false)
+  const [followersOpen, setFollowersOpen] = useState(false)
+  
+  // Notification settings modal
+  const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false)
+  
+  // Blocked users system
+  const [blockedUsers, setBlockedUsers] = useState<Friend[]>(() => load<Friend[]>("td_blocked_users_v1", []))
+  const [blockUsername, setBlockUsername] = useState("")
 
   useEffect(() => save("td_friends_v1", friends), [friends])
   useEffect(() => save("td_friend_requests_v1", friendRequests), [friendRequests])
+  useEffect(() => save("td_blocked_users_v1", blockedUsers), [blockedUsers])
 
-  // Settings example
+  // Notification settings
+  const [notifyNewCries, setNotifyNewCries] = useState<boolean>(() => load("td_notify_new_cries_v1", true))
+  const [notifyNewFollowers, setNotifyNewFollowers] = useState<boolean>(() => load("td_notify_new_followers_v1", true))
+  const [notifyComments, setNotifyComments] = useState<boolean>(() => load("td_notify_comments_v1", true))
+  const [notifyLikes, setNotifyLikes] = useState<boolean>(() => load("td_notify_likes_v1", false))
   const [notifyAchievements, setNotifyAchievements] = useState<boolean>(() => load("td_notify_achievements_v1", true))
+  
+  // Save notification settings
+  useEffect(() => save("td_notify_new_cries_v1", notifyNewCries), [notifyNewCries])
+  useEffect(() => save("td_notify_new_followers_v1", notifyNewFollowers), [notifyNewFollowers])
+  useEffect(() => save("td_notify_comments_v1", notifyComments), [notifyComments])
+  useEffect(() => save("td_notify_likes_v1", notifyLikes), [notifyLikes])
   useEffect(() => save("td_notify_achievements_v1", notifyAchievements), [notifyAchievements])
 
   // Firebase auth state
@@ -433,13 +454,25 @@ export default function TeardropApp() {
       // For now, we'll simulate with mock data
       await new Promise(resolve => setTimeout(resolve, 1000))
       
-      const mockUsers: Friend[] = [
-        { uid: "user1", username: "alice", displayName: "Alice", avatarEmoji: "👩", avatarColor: "#FF6B35" },
-        { uid: "user2", username: "bob", displayName: "Bob", avatarEmoji: "👨", avatarColor: "#4CAF50" },
-        { uid: "user3", username: "charlie", displayName: "Charlie", avatarEmoji: "😊", avatarColor: "#2196F3" },
-      ].filter(user => 
-        user.username.toLowerCase().includes(username.toLowerCase()) &&
-        user.uid !== user?.uid
+      const allMockUsers: Friend[] = [
+        { uid: "user1", username: "alice", displayName: "Alice Johnson", avatarEmoji: "👩", avatarColor: "#FF6B35" },
+        { uid: "user2", username: "bob", displayName: "Bob Smith", avatarEmoji: "👨", avatarColor: "#4CAF50" },
+        { uid: "user3", username: "charlie", displayName: "Charlie Brown", avatarEmoji: "😊", avatarColor: "#2196F3" },
+        { uid: "user4", username: "diana", displayName: "Diana Wilson", avatarEmoji: "👩‍💼", avatarColor: "#9C27B0" },
+        { uid: "user5", username: "emily", displayName: "Emily Davis", avatarEmoji: "🌟", avatarColor: "#FF9800" },
+        { uid: "user6", username: "frank", displayName: "Frank Miller", avatarEmoji: "🎯", avatarColor: "#795548" },
+        { uid: "user7", username: "grace", displayName: "Grace Lee", avatarEmoji: "🎨", avatarColor: "#607D8B" },
+        { uid: "user8", username: "henry", displayName: "Henry Taylor", avatarEmoji: "🚀", avatarColor: "#E91E63" },
+        { uid: "user9", username: "isabel", displayName: "Isabel Rodriguez", avatarEmoji: "💎", avatarColor: "#00BCD4" },
+        { uid: "user10", username: "jack", displayName: "Jack Anderson", avatarEmoji: "⚡", avatarColor: "#8BC34A" },
+      ]
+      
+      const mockUsers = allMockUsers.filter(mockUser => 
+        (mockUser.username.toLowerCase().includes(username.toLowerCase()) ||
+         (mockUser.displayName && mockUser.displayName.toLowerCase().includes(username.toLowerCase()))) &&
+        mockUser.uid !== user?.uid &&
+        !friends.some(friend => friend.uid === mockUser.uid) &&
+        !blockedUsers.some(blocked => blocked.username === mockUser.username.toLowerCase())
       )
       
       setSearchResults(mockUsers)
@@ -505,6 +538,50 @@ export default function TeardropApp() {
     
     // In a real app, you'd update Firestore
     console.log("Friend removed:", friendUid)
+  }
+
+  function blockUser(username: string) {
+    if (!username.trim()) return
+    
+    // Check if user is already blocked
+    if (blockedUsers.some(u => u.username === username.toLowerCase())) {
+      alert("User is already blocked")
+      return
+    }
+    
+    // Check if trying to block yourself
+    if (username.toLowerCase() === user?.username?.toLowerCase()) {
+      alert("You cannot block yourself")
+      return
+    }
+    
+    // Check if user is already a friend
+    if (friends.some(f => f.username.toLowerCase() === username.toLowerCase())) {
+      alert("You cannot block someone you're already friends with. Unfriend them first.")
+      return
+    }
+    
+    // Create blocked user entry
+    const blockedUser: Friend = {
+      uid: `blocked_${Date.now()}`,
+      username: username.toLowerCase(),
+      displayName: username,
+      avatarEmoji: "🚫",
+      avatarColor: "#6B7280",
+    }
+    
+    setBlockedUsers(prev => [...prev, blockedUser])
+    setBlockUsername("")
+    
+    // In a real app, you'd update Firestore
+    console.log("User blocked:", username)
+  }
+
+  function unblockUser(username: string) {
+    setBlockedUsers(prev => prev.filter(u => u.username !== username.toLowerCase()))
+    
+    // In a real app, you'd update Firestore
+    console.log("User unblocked:", username)
   }
 
   function signOut() {
@@ -817,6 +894,27 @@ export default function TeardropApp() {
       <div className="fixed top-0 left-0 right-0 z-50 bg-[rgba(26,26,26,0.95)] backdrop-blur border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="font-bold text-sm sm:text-base">{headerTitle}</div>
         <div className="flex items-center gap-2">
+          {/* Ad Free button - shows on all pages */}
+          <Button
+            variant="outline"
+            className={cn(
+              "rounded-lg font-semibold px-4 py-2 border-zinc-600 text-zinc-300 hover:bg-zinc-700 hover:text-white transition-colors",
+              user?.isAdFree && "bg-green-600 border-green-500 text-white hover:bg-green-700"
+            )}
+            onClick={() => {
+              if (!isLoggedIn) {
+                setAuthMode("signin")
+                setAuthOpen(true)
+              } else if (user?.isAdFree) {
+                alert("You already have ad-free access! 🎉")
+              } else {
+                setPremiumModalOpen(true)
+              }
+            }}
+          >
+            {user?.isAdFree ? "✅ Ad Free" : "🚫 Remove Ads"}
+          </Button>
+          
           {page === "feed" && isLoggedIn && (
             <Button
               className="rounded-lg font-semibold px-4 py-2"
@@ -829,7 +927,7 @@ export default function TeardropApp() {
           {page === "profile" && (
             <Button
               variant="outline"
-              className="border-2 border-[var(--accent)] text-white hover:bg-[var(--accent)] bg-transparent"
+              className="rounded-lg font-semibold px-4 py-2 border-2 border-[var(--accent)] text-white hover:bg-[var(--accent)] bg-transparent"
               onClick={() => {
                 if (!isLoggedIn) {
                   setAuthMode("signin")
@@ -845,7 +943,7 @@ export default function TeardropApp() {
             </Button>
           )}
           {page === "settings" && isLoggedIn && (
-            <Button className="rounded-full font-semibold" style={{ background: ORANGE }} onClick={handleHeaderAction}>
+            <Button className="rounded-lg font-semibold px-4 py-2" style={{ background: ORANGE }} onClick={handleHeaderAction}>
               <LogOut className="h-4 w-4 mr-2" />
               Logout
             </Button>
@@ -872,8 +970,8 @@ export default function TeardropApp() {
                     }
                   } else {
                     // Handle cry markers
-                    const cry = cries.find((c) => c.id === id)
-                    if (cry) openCryInfo(cry)
+                  const cry = cries.find((c) => c.id === id)
+                  if (cry) openCryInfo(cry)
                   }
                 }}
                 onMapClick={(pos) => startPlaceCry(pos)}
@@ -902,7 +1000,29 @@ export default function TeardropApp() {
               </div>
             </div>
 
-           
+            {/* Ad Free button */}
+            {/*<div className="absolute top-[70px] right-4 z-10">
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "bg-[rgba(26,26,26,0.9)] backdrop-blur border-zinc-600 text-zinc-300 hover:bg-zinc-700 hover:text-white transition-colors",
+                  user?.isAdFree && "bg-green-600 border-green-500 text-white hover:bg-green-700"
+                )}
+                onClick={() => {
+                  if (!isLoggedIn) {
+                    setAuthMode("signin")
+                    setAuthOpen(true)
+                  } else if (user?.isAdFree) {
+                    alert("You already have ad-free access! 🎉")
+                  } else {
+                    setPremiumModalOpen(true)
+                  }
+                }}
+              >
+                {user?.isAdFree ? "✅ Ad Free" : "🚫 Remove Ads"}
+              </Button>
+            </div> -->
 
             {/* Place Cry button */}
             <div className="fixed bottom-[100px] left-1/2 -translate-x-1/2 z-10">
@@ -939,11 +1059,11 @@ export default function TeardropApp() {
             </div>
           ) : (
             <div className="space-y-4">
-              {friends.length === 0 ? (
+              {friends.filter(friend => !blockedUsers.some(blocked => blocked.username === friend.username.toLowerCase())).length === 0 ? (
                 <div className="text-center text-zinc-300 py-10">
                   <div className="text-6xl mb-4 text-blue-300">👥</div>
                   <h3 className="text-xl font-semibold text-white">No Friends Yet</h3>
-                  <p className="text-sm text-zinc-400 mt-1">Add friends to see their emotional journeys here</p>
+                <p className="text-sm text-zinc-400 mt-1">Add friends to see their emotional journeys here</p>
                   <Button
                     className="mt-6 font-bold rounded-lg px-6 py-3"
                     style={{ background: ORANGE }}
@@ -951,56 +1071,15 @@ export default function TeardropApp() {
                   >
                     Add Your First Friend
                   </Button>
-                </div>
+              </div>
               ) : (
-                <div className="space-y-4">
+                                <div className="space-y-4">
                   <div className="text-lg font-semibold text-white mb-4">Friends' Emotional Journeys</div>
                   
-                  {/* Friend requests section */}
-                  {friendRequests.filter(r => r.status === "pending").length > 0 && (
-                    <div className="bg-zinc-800 rounded-xl p-4 mb-4">
-                      <h4 className="text-white font-semibold mb-3">Friend Requests</h4>
-                      <div className="space-y-3">
-                        {friendRequests
-                          .filter(r => r.status === "pending")
-                          .map(request => (
-                            <div key={request.id} className="flex items-center justify-between bg-zinc-700 rounded-lg p-3">
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold">
-                                  {request.fromUsername.charAt(0).toUpperCase()}
-                                </div>
-                                <div>
-                                  <div className="text-white font-medium">@{request.fromUsername}</div>
-                                  <div className="text-xs text-zinc-400">Sent {timeAgo(request.timestamp)}</div>
-                                </div>
-                              </div>
-                              <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  className="bg-green-600 hover:bg-green-700"
-                                  onClick={() => acceptFriendRequest(request.id)}
-                                >
-                                  Accept
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="border-zinc-600 text-zinc-300"
-                                  onClick={() => rejectFriendRequest(request.id)}
-                                >
-                                  Decline
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Friends' cries */}
                   <div className="space-y-3">
                     {cries
-                      .filter(cry => friends.some(friend => friend.uid === cry.userId))
+                      .filter(cry => friends.filter(friend => !blockedUsers.some(blocked => blocked.username === friend.username.toLowerCase())).some(friend => friend.uid === cry.userId))
                       .map(cry => (
                         <div key={cry.id} className="bg-zinc-800 rounded-xl p-4">
                           <div className="flex items-start gap-3">
@@ -1023,10 +1102,11 @@ export default function TeardropApp() {
                       ))}
                   </div>
 
-                  {cries.filter(cry => friends.some(friend => friend.uid === cry.userId)).length === 0 && (
+                  {cries.filter(cry => friends.filter(friend => !blockedUsers.some(blocked => blocked.username === friend.username.toLowerCase())).some(friend => friend.uid === cry.userId)).length === 0 && (
                     <div className="text-center text-zinc-400 py-8">
                       <div className="text-4xl mb-2">😴</div>
                       <p>Your friends haven't shared any emotional journeys yet</p>
+                      <p className="text-sm mt-2">Add friends to see their cries here, or check the Inbox for friend requests</p>
                     </div>
                   )}
                 </div>
@@ -1099,9 +1179,9 @@ export default function TeardropApp() {
                     setAuthMode("signin")
                     setAuthOpen(true)
                   } else {
-                    const url = `${window.location.origin}/profile/${user?.username}`
-                    navigator.clipboard.writeText(url)
-                    alert("Profile link copied to clipboard!")
+                  const url = `${window.location.origin}/profile/${user?.username}`
+                  navigator.clipboard.writeText(url)
+                  alert("Profile link copied to clipboard!")
                   }
                 }}
               >
@@ -1125,8 +1205,34 @@ export default function TeardropApp() {
                 }
               }}
             />
-            <Stat card title="Following" value={friends.length} />
-            <Stat card title="Followers" value={friendRequests.filter(r => r.status === "accepted").length} />
+            <Stat 
+              card 
+              title="Following" 
+              value={friends.filter(friend => !blockedUsers.some(blocked => blocked.username === friend.username.toLowerCase())).length} 
+              highlight={true}
+              onClick={() => {
+                if (!isLoggedIn) {
+                  setAuthMode("signin")
+                  setAuthOpen(true)
+                } else {
+                  setFollowingOpen(true)
+                }
+              }}
+            />
+            <Stat 
+              card 
+              title="Followers" 
+              value={friendRequests.filter(r => r.status === "accepted").length} 
+              highlight={true}
+              onClick={() => {
+                if (!isLoggedIn) {
+                  setAuthMode("signin")
+                  setAuthOpen(true)
+                } else {
+                  setFollowersOpen(true)
+                }
+              }}
+            />
             <Stat card title="Countries" value={statsCountries} highlight onClick={() => {
               if (!isLoggedIn) {
                 setAuthMode("signin")
@@ -1198,8 +1304,60 @@ export default function TeardropApp() {
           <div className="text-center mb-6">
             <div className="text-4xl mb-2">🔔</div>
             <h3 className="text-xl font-semibold">Notifications</h3>
-            <p className="text-sm text-zinc-400 mt-1">Your achievements and updates</p>
+            <p className="text-sm text-zinc-400 mt-1">Your achievements, friend requests, and updates</p>
           </div>
+          
+          {/* Friend Requests Section */}
+          {isLoggedIn && (
+            <div className="bg-zinc-800 rounded-xl p-4 mb-6">
+              <h4 className="text-white font-semibold mb-3 flex items-center gap-2">
+                <span>👥</span>
+                Friend Requests
+              </h4>
+              {friendRequests.filter(r => r.status === "pending").length > 0 ? (
+                <div className="space-y-3">
+                  {friendRequests
+                    .filter(r => r.status === "pending")
+                    .map(request => (
+                      <div key={request.id} className="flex items-center justify-between bg-zinc-700 rounded-lg p-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold">
+                            {request.fromUsername.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="text-white font-medium">@{request.fromUsername}</div>
+                            <div className="text-xs text-zinc-400">Sent {timeAgo(request.timestamp)}</div>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+            <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => acceptFriendRequest(request.id)}
+                          >
+                            Accept
+            </Button>
+            <Button
+                            size="sm"
+              variant="outline"
+                            className="border-zinc-600 text-zinc-300"
+                            onClick={() => rejectFriendRequest(request.id)}
+            >
+                            Decline
+            </Button>
+          </div>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div className="text-center text-zinc-400 py-4">
+                  <div className="text-2xl mb-2">📭</div>
+                  <div className="text-sm">No pending friend requests</div>
+                  <div className="text-xs mt-1">When someone sends you a friend request, it will appear here</div>
+                </div>
+              )}
+            </div>
+          )}
           
           {/* Achievements as Notifications */}
           <div className="space-y-3">
@@ -1219,7 +1377,7 @@ export default function TeardropApp() {
                   <div className="flex items-start gap-3">
                     <div className="text-2xl flex-shrink-0">
                       {def.icon}
-                    </div>
+          </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
                         <h4 className="font-semibold text-white">
@@ -1274,12 +1432,12 @@ export default function TeardropApp() {
           >
             General
           </div>
-          <ToggleRow title="🔔 Notifications" value={notifyAchievements} onChange={(value) => {
+          <SettingRow title="🔔 Notifications" onClick={() => {
             if (!isLoggedIn) {
               setAuthMode("signin")
               setAuthOpen(true)
             } else {
-              setNotifyAchievements(value)
+              setNotificationSettingsOpen(true)
             }
           }} />
           <SettingRow title="📱 Feed" onClick={() => {
@@ -1305,35 +1463,35 @@ export default function TeardropApp() {
                 setAuthMode("signin")
                 setAuthOpen(true)
               } else {
-                const csvData = cries
-                  .filter((c) => c.userId === user?.uid)
-                  .map((c) => ({
-                    Date: new Date(c.timestamp).toLocaleDateString(),
-                    Time: new Date(c.timestamp).toLocaleTimeString(),
-                    Emotion: c.name,
-                    Rating: c.rating,
-                    Location: c.locationTag || c.country,
-                    Description: c.description || "",
-                    Likes: c.likes?.length || 0,
-                    Comments: c.comments?.length || 0,
-                  }))
+              const csvData = cries
+                .filter((c) => c.userId === user?.uid)
+                .map((c) => ({
+                  Date: new Date(c.timestamp).toLocaleDateString(),
+                  Time: new Date(c.timestamp).toLocaleTimeString(),
+                  Emotion: c.name,
+                  Rating: c.rating,
+                  Location: c.locationTag || c.country,
+                  Description: c.description || "",
+                  Likes: c.likes?.length || 0,
+                  Comments: c.comments?.length || 0,
+                }))
 
-                const csvContent = [
-                  Object.keys(csvData[0] || {}).join(","),
-                  ...csvData.map((row) =>
-                    Object.values(row)
-                      .map((val) => `"${val}"`)
-                      .join(","),
-                  ),
-                ].join("\n")
+              const csvContent = [
+                Object.keys(csvData[0] || {}).join(","),
+                ...csvData.map((row) =>
+                  Object.values(row)
+                    .map((val) => `"${val}"`)
+                    .join(","),
+                ),
+              ].join("\n")
 
-                const blob = new Blob([csvContent], { type: "text/csv" })
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement("a")
-                a.href = url
-                a.download = `teardrop-data-${new Date().toISOString().split("T")[0]}.csv`
-                a.click()
-                URL.revokeObjectURL(url)
+              const blob = new Blob([csvContent], { type: "text/csv" })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement("a")
+              a.href = url
+              a.download = `teardrop-data-${new Date().toISOString().split("T")[0]}.csv`
+              a.click()
+              URL.revokeObjectURL(url)
               }
             }}
           />
@@ -1344,21 +1502,21 @@ export default function TeardropApp() {
                 setAuthMode("signin")
                 setAuthOpen(true)
               } else {
-                const jsonData = {
-                  user: user,
-                  cries: cries.filter((c) => c.userId === user?.uid),
-                  exportDate: new Date().toISOString(),
-                  totalCries: cries.filter((c) => c.userId === user?.uid).length,
-                  achievements: achievements,
-                }
+              const jsonData = {
+                user: user,
+                cries: cries.filter((c) => c.userId === user?.uid),
+                exportDate: new Date().toISOString(),
+                totalCries: cries.filter((c) => c.userId === user?.uid).length,
+                achievements: achievements,
+              }
 
-                const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: "application/json" })
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement("a")
-                a.href = url
-                a.download = `teardrop-data-${new Date().toISOString().split("T")[0]}.json`
-                a.click()
-                URL.revokeObjectURL(url)
+              const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: "application/json" })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement("a")
+              a.href = url
+              a.download = `teardrop-data-${new Date().toISOString().split("T")[0]}.json`
+              a.click()
+              URL.revokeObjectURL(url)
               }
             }}
           />
@@ -1440,10 +1598,10 @@ export default function TeardropApp() {
                 setAuthMode("signin")
                 setAuthOpen(true)
               } else {
-                const email = "support@teardrop.app"
-                const subject = "Problem Report"
-                const body = "Describe the problem you encountered:\n\n"
-                window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`)
+              const email = "support@teardrop.app"
+              const subject = "Problem Report"
+              const body = "Describe the problem you encountered:\n\n"
+              window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`)
               }
             }}
           />
@@ -1454,10 +1612,10 @@ export default function TeardropApp() {
                 setAuthMode("signin")
                 setAuthOpen(true)
               } else {
-                const email = "support@teardrop.app"
-                const subject = "Feature Suggestion"
-                const body = "I have a suggestion for Teardrop:\n\n"
-                window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`)
+              const email = "support@teardrop.app"
+              const subject = "Feature Suggestion"
+              const body = "I have a suggestion for Teardrop:\n\n"
+              window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`)
               }
             }}
           />
@@ -1473,10 +1631,10 @@ export default function TeardropApp() {
                 setAuthMode("signin")
                 setAuthOpen(true)
               } else {
-                if (confirm("Are you sure you want to request account deletion? This action cannot be undone.")) {
-                  alert(
-                    "Account deletion request submitted. You will receive an email with further instructions within 48 hours.",
-                  )
+              if (confirm("Are you sure you want to request account deletion? This action cannot be undone.")) {
+                alert(
+                  "Account deletion request submitted. You will receive an email with further instructions within 48 hours.",
+                )
                 }
               }
             }}
@@ -1986,11 +2144,43 @@ export default function TeardropApp() {
             <DialogDescription className="sr-only">Manage your blocked users</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {blockedUsers.length > 0 ? (
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                <h4 className="text-white font-semibold">Blocked Users ({blockedUsers.length})</h4>
+                {blockedUsers.map(blockedUser => (
+                  <div key={blockedUser.uid} className="flex items-center justify-between bg-zinc-800 rounded-lg p-3">
+                    <div className="flex items-center gap-3">
+                      <div 
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                        style={{ background: blockedUser.avatarColor }}
+                      >
+                        {blockedUser.avatarEmoji}
+                      </div>
+                      <div>
+                        <div className="text-white font-medium">@{blockedUser.username}</div>
+                        {blockedUser.displayName && (
+                          <div className="text-xs text-zinc-400">{blockedUser.displayName}</div>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-green-500 text-green-500 hover:bg-green-500 hover:text-white"
+                      onClick={() => unblockUser(blockedUser.username)}
+                    >
+                      Unblock
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
             <div className="text-center text-zinc-400 py-8">
               <div className="text-4xl mb-2">🚫</div>
               <div className="text-lg font-semibold">No Blocked Users</div>
               <div className="text-sm mt-1">Users you block will appear here</div>
             </div>
+            )}
 
             <div>
               <div className="text-sm font-semibold mb-2">Block a User</div>
@@ -1998,10 +2188,18 @@ export default function TeardropApp() {
                 <Input
                   placeholder="Enter username to block"
                   className="bg-zinc-800 border-zinc-700 text-white flex-1"
+                  value={blockUsername}
+                  onChange={(e) => setBlockUsername(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      blockUser(blockUsername)
+                    }
+                  }}
                 />
                 <Button
                   style={{ background: ORANGE }}
-                  onClick={() => alert("Block user functionality would be implemented here")}
+                  onClick={() => blockUser(blockUsername)}
+                  disabled={!blockUsername.trim()}
                 >
                   Block
                 </Button>
@@ -2025,7 +2223,7 @@ export default function TeardropApp() {
               value={showEmotionalInsights}
               onChange={setShowEmotionalInsights}
             />
-            <ToggleRow title="Notify about new cries nearby" value={notifyNewCries} onChange={setNotifyNewCries} />
+
 
             <div>
               <div className="text-sm font-semibold mb-2">Feed Radius</div>
@@ -2165,6 +2363,149 @@ export default function TeardropApp() {
         onOpenChange={setPremiumModalOpen}
       />
 
+      {/* Notification Settings Modal */}
+      <Dialog open={notificationSettingsOpen} onOpenChange={setNotificationSettingsOpen}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold">Notification Settings</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Choose which notifications you want to receive
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <ToggleRow 
+              title="New cries" 
+              value={notifyNewCries} 
+              onChange={setNotifyNewCries} 
+            />
+            <ToggleRow 
+              title="New followers" 
+              value={notifyNewFollowers} 
+              onChange={setNotifyNewFollowers} 
+            />
+            <ToggleRow 
+              title="Comments" 
+              value={notifyComments} 
+              onChange={setNotifyComments} 
+            />
+            <ToggleRow 
+              title="Likes" 
+              value={notifyLikes} 
+              onChange={setNotifyLikes} 
+            />
+            <ToggleRow 
+              title="Achievements" 
+              value={notifyAchievements} 
+              onChange={setNotifyAchievements} 
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Following List Modal */}
+      <Dialog open={followingOpen} onOpenChange={setFollowingOpen}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold">Following ({friends.filter(friend => !blockedUsers.some(blocked => blocked.username === friend.username.toLowerCase())).length})</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              People you are following
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {friends.filter(friend => !blockedUsers.some(blocked => blocked.username === friend.username.toLowerCase())).length > 0 ? (
+              friends.filter(friend => !blockedUsers.some(blocked => blocked.username === friend.username.toLowerCase())).map(friend => (
+                <div key={friend.uid} className="flex items-center justify-between bg-zinc-800 rounded-lg p-3">
+                  <div className="flex items-center gap-3">
+                    <div 
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                      style={{ background: friend.avatarColor || ORANGE }}
+                    >
+                      {friend.avatarEmoji || friend.username.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="text-white font-medium">@{friend.username}</div>
+                      {friend.displayName && (
+                        <div className="text-xs text-zinc-400">{friend.displayName}</div>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-red-500 text-red-500 hover:bg-red-500 hover:text-white"
+                    onClick={() => removeFriend(friend.uid)}
+                  >
+                    Unfollow
+                  </Button>
+                </div>
+              ))
+            ) : (
+              <div className="text-center text-zinc-400 py-8">
+                <div className="text-4xl mb-2">👥</div>
+                <div className="text-lg font-semibold">Not Following Anyone</div>
+                <div className="text-sm mt-1">Start following people to see their cries in your feed</div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Followers List Modal */}
+      <Dialog open={followersOpen} onOpenChange={setFollowersOpen}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold">Followers ({friendRequests.filter(r => r.status === "accepted").length})</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              People following you
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {friendRequests.filter(r => r.status === "accepted").length > 0 ? (
+              friendRequests
+                .filter(r => r.status === "accepted")
+                .map(follower => (
+                  <div key={follower.id} className="flex items-center justify-between bg-zinc-800 rounded-lg p-3">
+                    <div className="flex items-center gap-3">
+                      <div 
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                        style={{ background: ORANGE }}
+                      >
+                        {follower.fromUsername.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="text-white font-medium">@{follower.fromUsername}</div>
+                        {follower.fromDisplayName && (
+                          <div className="text-xs text-zinc-400">{follower.fromDisplayName}</div>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-zinc-600 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                      onClick={() => {
+                        // View their profile or send message
+                        alert(`Viewing @${follower.fromUsername}'s profile`)
+                      }}
+                    >
+                      View Profile
+                    </Button>
+                  </div>
+                ))
+            ) : (
+              <div className="text-center text-zinc-400 py-8">
+                <div className="text-4xl mb-2">👤</div>
+                <div className="text-lg font-semibold">No Followers Yet</div>
+                <div className="text-sm mt-1">Share your profile to get more followers</div>
+              </div>
+              )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Add Friends Modal */}
       <Dialog open={addFriendsOpen} onOpenChange={setAddFriendsOpen}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-md">
@@ -2200,46 +2541,56 @@ export default function TeardropApp() {
             </div>
 
             {/* Search results */}
-            {searchResults.length > 0 && (
+            {searchUsername.trim() && !searching && (
               <div className="space-y-3">
                 <h4 className="text-white font-semibold">Search Results</h4>
-                {searchResults.map(user => (
-                  <div key={user.uid} className="flex items-center justify-between bg-zinc-800 rounded-lg p-3">
-                    <div className="flex items-center gap-3">
-                      <div 
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
-                        style={{ background: user.avatarColor || ORANGE }}
-                      >
-                        {user.avatarEmoji || user.username.charAt(0).toUpperCase()}
+                {searchResults.length > 0 ? (
+                  <div className="space-y-3">
+                    {searchResults.map(user => (
+                      <div key={user.uid} className="flex items-center justify-between bg-zinc-800 rounded-lg p-3">
+                        <div className="flex items-center gap-3">
+                          <div 
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                            style={{ background: user.avatarColor || ORANGE }}
+                          >
+                            {user.avatarEmoji || user.username.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="text-white font-medium">@{user.username}</div>
+                            {user.displayName && (
+                              <div className="text-xs text-zinc-400">{user.displayName}</div>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700"
+                          onClick={() => {
+                            sendFriendRequest(user.uid, user.username)
+                            setSearchResults([])
+                            setSearchUsername("")
+                          }}
+                        >
+                          Add Friend
+                        </Button>
                       </div>
-                      <div>
-                        <div className="text-white font-medium">@{user.username}</div>
-                        {user.displayName && (
-                          <div className="text-xs text-zinc-400">{user.displayName}</div>
-                        )}
-                      </div>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="bg-green-600 hover:bg-green-700"
-                      onClick={() => {
-                        sendFriendRequest(user.uid, user.username)
-                        setSearchResults([])
-                        setSearchUsername("")
-                      }}
-                    >
-                      Add Friend
-                    </Button>
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <div className="text-center text-zinc-400 py-6">
+                    <div className="text-4xl mb-2">🔍</div>
+                    <div className="text-sm">No users found</div>
+                    <div className="text-xs mt-1">Try searching with a different username</div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Current friends */}
-            {friends.length > 0 && (
+            {friends.filter(friend => !blockedUsers.some(blocked => blocked.username === friend.username.toLowerCase())).length > 0 && (
               <div className="space-y-3">
-                <h4 className="text-white font-semibold">Your Friends ({friends.length})</h4>
-                {friends.map(friend => (
+                <h4 className="text-white font-semibold">Your Friends ({friends.filter(friend => !blockedUsers.some(blocked => blocked.username === friend.username.toLowerCase())).length})</h4>
+                {friends.filter(friend => !blockedUsers.some(blocked => blocked.username === friend.username.toLowerCase())).map(friend => (
                   <div key={friend.uid} className="flex items-center justify-between bg-zinc-800 rounded-lg p-3">
                     <div className="flex items-center gap-3">
                       <div 
