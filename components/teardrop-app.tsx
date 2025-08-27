@@ -29,6 +29,11 @@ import {
   doc,
   updateDoc,
   getDoc,
+  collection,
+  query,
+  where,
+  limit,
+  getDocs,
 } from "@/lib/firebase"
 
 type Comment = {
@@ -354,35 +359,8 @@ export default function TeardropApp() {
   const [showEmotionalInsights, setShowEmotionalInsights] = useState(true)
 
   // Friends system
-  const [friends, setFriends] = useState<Friend[]>(() => load<Friend[]>("td_friends_v1", [
-    // Mock friends for testing
-    {
-      uid: "user2",
-      username: "bob",
-      displayName: "Bob",
-      avatarEmoji: "👨",
-      avatarColor: "#4CAF50",
-    },
-    {
-      uid: "user3",
-      username: "charlie",
-      displayName: "Charlie",
-      avatarEmoji: "😊",
-      avatarColor: "#2196F3",
-    }
-  ]))
-  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(() => load<FriendRequest[]>("td_friend_requests_v1", [
-    // Mock friend requests for testing
-    {
-      id: "mock_request_1",
-      fromUid: "user1",
-      fromUsername: "alice",
-      fromDisplayName: "Alice",
-      toUid: "current_user",
-      status: "pending",
-      timestamp: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-    }
-  ]))
+  const [friends, setFriends] = useState<Friend[]>([])
+  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([])
   const [addFriendsOpen, setAddFriendsOpen] = useState(false)
   const [searchUsername, setSearchUsername] = useState("")
   const [searchResults, setSearchResults] = useState<Friend[]>([])
@@ -436,9 +414,16 @@ export default function TeardropApp() {
         }
         setUser(profileUser)
         save("td_user_v1", profileUser)
+        
+        // Load friends data after user is set
+        await loadFriendsData()
       } else {
         setUser(null)
         save("td_user_v1", null)
+        // Clear friends data when user logs out
+        setFriends([])
+        setFriendRequests([])
+        setBlockedUsers([])
       }
     })
     return () => unsub()
@@ -450,32 +435,38 @@ export default function TeardropApp() {
     
     setSearching(true)
     try {
-      // In a real app, you'd query Firestore
-      // For now, we'll simulate with mock data
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      const allMockUsers: Friend[] = [
-        { uid: "user1", username: "alice", displayName: "Alice Johnson", avatarEmoji: "👩", avatarColor: "#FF6B35" },
-        { uid: "user2", username: "bob", displayName: "Bob Smith", avatarEmoji: "👨", avatarColor: "#4CAF50" },
-        { uid: "user3", username: "charlie", displayName: "Charlie Brown", avatarEmoji: "😊", avatarColor: "#2196F3" },
-        { uid: "user4", username: "diana", displayName: "Diana Wilson", avatarEmoji: "👩‍💼", avatarColor: "#9C27B0" },
-        { uid: "user5", username: "emily", displayName: "Emily Davis", avatarEmoji: "🌟", avatarColor: "#FF9800" },
-        { uid: "user6", username: "frank", displayName: "Frank Miller", avatarEmoji: "🎯", avatarColor: "#795548" },
-        { uid: "user7", username: "grace", displayName: "Grace Lee", avatarEmoji: "🎨", avatarColor: "#607D8B" },
-        { uid: "user8", username: "henry", displayName: "Henry Taylor", avatarEmoji: "🚀", avatarColor: "#E91E63" },
-        { uid: "user9", username: "isabel", displayName: "Isabel Rodriguez", avatarEmoji: "💎", avatarColor: "#00BCD4" },
-        { uid: "user10", username: "jack", displayName: "Jack Anderson", avatarEmoji: "⚡", avatarColor: "#8BC34A" },
-      ]
-      
-      const mockUsers = allMockUsers.filter(mockUser => 
-        (mockUser.username.toLowerCase().includes(username.toLowerCase()) ||
-         (mockUser.displayName && mockUser.displayName.toLowerCase().includes(username.toLowerCase()))) &&
-        mockUser.uid !== user?.uid &&
-        !friends.some(friend => friend.uid === mockUser.uid) &&
-        !blockedUsers.some(blocked => blocked.username === mockUser.username.toLowerCase())
+      // Query Firestore for users matching the search term
+      const usersRef = collection(db, "users")
+      const q = query(
+        usersRef,
+        where("username", ">=", username.toLowerCase()),
+        where("username", "<=", username.toLowerCase() + "\uf8ff"),
+        limit(10)
       )
       
-      setSearchResults(mockUsers)
+      const querySnapshot = await getDocs(q)
+      const searchResults: Friend[] = []
+      
+      querySnapshot.forEach((doc) => {
+        const userData = doc.data()
+        if (userData && doc.id !== user?.uid) {
+          searchResults.push({
+            uid: doc.id,
+            username: userData.username || "",
+            displayName: userData.displayName || userData.username || "",
+            avatarEmoji: userData.avatarEmoji || "👤",
+            avatarColor: userData.avatarColor || "#FF6B35",
+          })
+        }
+      })
+      
+      // Filter out existing friends and blocked users
+      const filteredResults = searchResults.filter(searchUser => 
+        !friends.some(friend => friend.uid === searchUser.uid) &&
+        !blockedUsers.some(blocked => blocked.username === searchUser.username.toLowerCase())
+      )
+      
+      setSearchResults(filteredResults)
     } catch (error) {
       console.error("Error searching users:", error)
       setSearchResults([])
@@ -485,10 +476,11 @@ export default function TeardropApp() {
   }
 
   async function sendFriendRequest(toUid: string, toUsername: string) {
-    if (!isLoggedIn || !user) return
+    if (!isLoggedIn || !user || !db) return
     
+    const requestId = `${user.uid}_${toUid}_${Date.now()}`
     const request: FriendRequest = {
-      id: `${user.uid}_${toUid}_${Date.now()}`,
+      id: requestId,
       fromUid: user.uid,
       fromUsername: user.username,
       toUid,
@@ -496,52 +488,112 @@ export default function TeardropApp() {
       timestamp: new Date().toISOString(),
     }
     
-    setFriendRequests(prev => [...prev, request])
-    
-    // In a real app, you'd save to Firestore
-    console.log("Friend request sent:", request)
+    try {
+      // Save to Firestore with a simpler structure
+      await setDoc(doc(db, "friendRequests", requestId), {
+        fromUid: user.uid,
+        fromUsername: user.username || "",
+        fromDisplayName: user.username || "",
+        toUid: toUid,
+        status: "pending",
+        timestamp: new Date().toISOString(),
+      })
+      
+      // Update local state
+      setFriendRequests(prev => [...prev, request])
+      
+      console.log("Friend request sent:", request)
+    } catch (error) {
+      console.error("Error sending friend request:", error)
+      alert("Failed to send friend request. Please try again.")
+    }
   }
 
   async function acceptFriendRequest(requestId: string) {
     const request = friendRequests.find(r => r.id === requestId)
-    if (!request || !isLoggedIn) return
+    if (!request || !isLoggedIn || !db) return
     
-    // Update request status
-    setFriendRequests(prev => 
-      prev.map(r => r.id === requestId ? { ...r, status: "accepted" } : r)
-    )
-    
-    // Add to friends list
-    const newFriend: Friend = {
-      uid: request.fromUid,
-      username: request.fromUsername,
-      displayName: request.fromDisplayName,
+    try {
+      // Update request status in Firestore
+      await updateDoc(doc(db, "friendRequests", requestId), { status: "accepted" })
+      
+      // Add to friends collection
+      const friendDocId = `${user.uid}_${request.fromUid}`
+      await setDoc(doc(db, "friends", friendDocId), {
+        userId: user.uid,
+        friendUid: request.fromUid,
+        friendUsername: request.fromUsername || "",
+        friendDisplayName: request.fromDisplayName || request.fromUsername || "",
+        friendAvatarEmoji: "👤",
+        friendAvatarColor: "#FF6B35",
+        createdAt: new Date().toISOString(),
+      })
+      
+      // Update local state
+      setFriendRequests(prev => 
+        prev.map(r => r.id === requestId ? { ...r, status: "accepted" } : r)
+      )
+      
+      // Add to friends list
+      const newFriend: Friend = {
+        uid: request.fromUid,
+        username: request.fromUsername,
+        displayName: request.fromDisplayName || request.fromUsername,
+        avatarEmoji: "👤",
+        avatarColor: "#FF6B35",
+      }
+      
+      setFriends(prev => [...prev, newFriend])
+      
+      console.log("Friend request accepted:", request)
+    } catch (error) {
+      console.error("Error accepting friend request:", error)
+      alert("Failed to accept friend request. Please try again.")
     }
-    
-    setFriends(prev => [...prev, newFriend])
-    
-    // In a real app, you'd update Firestore
-    console.log("Friend request accepted:", request)
   }
 
   async function rejectFriendRequest(requestId: string) {
-    setFriendRequests(prev => 
-      prev.map(r => r.id === requestId ? { ...r, status: "rejected" } : r)
-    )
+    if (!isLoggedIn || !db) return
     
-    // In a real app, you'd update Firestore
-    console.log("Friend request rejected:", requestId)
+    try {
+      // Update request status in Firestore
+      await updateDoc(doc(db, "friendRequests", requestId), { status: "rejected" })
+      
+      // Update local state
+      setFriendRequests(prev => 
+        prev.map(r => r.id === requestId ? { ...r, status: "rejected" } : r)
+      )
+      
+      console.log("Friend request rejected:", requestId)
+    } catch (error) {
+      console.error("Error rejecting friend request:", error)
+      alert("Failed to reject friend request. Please try again.")
+    }
   }
 
-  function removeFriend(friendUid: string) {
-    setFriends(prev => prev.filter(f => f.uid !== friendUid))
+  async function removeFriend(friendUid: string) {
+    if (!isLoggedIn || !db) return
     
-    // In a real app, you'd update Firestore
-    console.log("Friend removed:", friendUid)
+    try {
+      // Delete from Firestore friends collection
+      const friendDocId = `${user?.uid}_${friendUid}`
+      await setDoc(doc(db, "friends", friendDocId), {
+        deleted: true,
+        deletedAt: new Date().toISOString()
+      })
+      
+      // Update local state
+      setFriends(prev => prev.filter(f => f.uid !== friendUid))
+      
+      console.log("Friend removed:", friendUid)
+    } catch (error) {
+      console.error("Error removing friend:", error)
+      alert("Failed to remove friend. Please try again.")
+    }
   }
 
-  function blockUser(username: string) {
-    if (!username.trim()) return
+  async function blockUser(username: string) {
+    if (!username.trim() || !isLoggedIn || !db) return
     
     // Check if user is already blocked
     if (blockedUsers.some(u => u.username === username.toLowerCase())) {
@@ -561,27 +613,141 @@ export default function TeardropApp() {
       return
     }
     
-    // Create blocked user entry
-    const blockedUser: Friend = {
-      uid: `blocked_${Date.now()}`,
-      username: username.toLowerCase(),
-      displayName: username,
-      avatarEmoji: "🚫",
-      avatarColor: "#6B7280",
+    try {
+      // Create blocked user entry
+      const blockedUser: Friend = {
+        uid: `blocked_${Date.now()}`,
+        username: username.toLowerCase(),
+        displayName: username,
+        avatarEmoji: "🚫",
+        avatarColor: "#6B7280",
+      }
+      
+      // Save to Firestore
+      await setDoc(doc(db, "blockedUsers", `${user.uid}_${blockedUser.uid}`), {
+        uid: blockedUser.uid,
+        username: blockedUser.username,
+        displayName: blockedUser.displayName || blockedUser.username,
+        avatarEmoji: blockedUser.avatarEmoji,
+        avatarColor: blockedUser.avatarColor,
+        blockedAt: new Date().toISOString(),
+        blockedBy: user.uid
+      })
+      
+      // Update local state
+      setBlockedUsers(prev => [...prev, blockedUser])
+      setBlockUsername("")
+      
+      console.log("User blocked:", username)
+    } catch (error) {
+      console.error("Error blocking user:", error)
+      alert("Failed to block user. Please try again.")
     }
-    
-    setBlockedUsers(prev => [...prev, blockedUser])
-    setBlockUsername("")
-    
-    // In a real app, you'd update Firestore
-    console.log("User blocked:", username)
   }
 
-  function unblockUser(username: string) {
-    setBlockedUsers(prev => prev.filter(u => u.username !== username.toLowerCase()))
+  async function unblockUser(username: string) {
+    if (!isLoggedIn || !db) return
     
-    // In a real app, you'd update Firestore
-    console.log("User unblocked:", username)
+    try {
+      // Find the blocked user to get their uid
+      const blockedUser = blockedUsers.find(u => u.username === username.toLowerCase())
+      if (blockedUser) {
+        // Remove from Firestore
+        await setDoc(doc(db, "blockedUsers", `${user.uid}_${blockedUser.uid}`), {
+          deleted: true,
+          deletedAt: new Date().toISOString()
+        })
+      }
+      
+      // Update local state
+      setBlockedUsers(prev => prev.filter(u => u.username !== username.toLowerCase()))
+      
+      console.log("User unblocked:", username)
+    } catch (error) {
+      console.error("Error unblocking user:", error)
+      alert("Failed to unblock user. Please try again.")
+    }
+  }
+
+  // Load friends data from Firestore
+  async function loadFriendsData() {
+    if (!isLoggedIn || !db || !user) return
+    
+    try {
+      // Load friends - simplified query without composite index
+      const friendsQuery = query(
+        collection(db, "friends"),
+        where("userId", "==", user.uid)
+      )
+      const friendsSnapshot = await getDocs(friendsQuery)
+      const friendsData: Friend[] = []
+      
+      friendsSnapshot.forEach((doc) => {
+        const data = doc.data()
+        if (data && !data.deleted) {
+          friendsData.push({
+            uid: data.friendUid,
+            username: data.friendUsername,
+            displayName: data.friendDisplayName,
+            avatarEmoji: data.friendAvatarEmoji,
+            avatarColor: data.friendAvatarColor,
+          })
+        }
+      })
+      
+      setFriends(friendsData)
+      
+      // Load friend requests - simplified query
+      const requestsQuery = query(
+        collection(db, "friendRequests"),
+        where("toUid", "==", user.uid)
+      )
+      const requestsSnapshot = await getDocs(requestsQuery)
+      const requestsData: FriendRequest[] = []
+      
+      requestsSnapshot.forEach((doc) => {
+        const data = doc.data()
+        if (data && data.status === "pending") {
+          requestsData.push({
+            id: doc.id,
+            fromUid: data.fromUid,
+            fromUsername: data.fromUsername,
+            fromDisplayName: data.fromDisplayName,
+            toUid: data.toUid,
+            status: data.status,
+            timestamp: data.timestamp,
+          })
+        }
+      })
+      
+      setFriendRequests(requestsData)
+      
+      // Load blocked users - simplified query
+      const blockedQuery = query(
+        collection(db, "blockedUsers"),
+        where("blockedBy", "==", user.uid)
+      )
+      const blockedSnapshot = await getDocs(blockedQuery)
+      const blockedData: Friend[] = []
+      
+      blockedSnapshot.forEach((doc) => {
+        const data = doc.data()
+        if (data && !data.deleted) {
+          blockedData.push({
+            uid: data.uid,
+            username: data.username,
+            displayName: data.displayName,
+            avatarEmoji: data.avatarEmoji,
+            avatarColor: data.avatarColor,
+          })
+        }
+      })
+      
+      setBlockedUsers(blockedData)
+      
+    } catch (error) {
+      console.error("Error loading friends data:", error)
+    }
   }
 
   function signOut() {
