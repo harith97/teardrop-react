@@ -12,6 +12,7 @@ import {
 } from "firebase/auth"
 import {
   getFirestore,
+  initializeFirestore,
   doc as docFirebase,
   setDoc as setDocFirebase,
   getDoc as getDocFirebase,
@@ -29,12 +30,20 @@ import {
   arrayUnion,
   arrayRemove,
 } from "firebase/firestore"
+import {
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL,
+  type UploadResult,
+} from "firebase/storage"
 
 // Initialize Firebase only on client side
 let app: any = null
 let auth: any = null
 let db: any = null
 let googleProvider: any = null
+let storage: any = null
 
 if (typeof window !== "undefined") {
   const firebaseConfig = {
@@ -49,12 +58,16 @@ if (typeof window !== "undefined") {
 
   app = initializeApp(firebaseConfig)
   auth = getAuth(app)
-  db = getFirestore(app)
+  // Use long polling to avoid WebChannel/CORS issues in some browsers/networks
+  db = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+  })
   googleProvider = new GoogleAuthProvider()
+  storage = getStorage(app)
 }
 
 export function getFirebase() {
-  return { auth, db, googleProvider }
+  return { auth, db, googleProvider, storage }
 }
 
 export const onAuthStateChanged = onAuthStateChangedFirebase
@@ -83,6 +96,13 @@ export {
   arrayUnion,
   arrayRemove,
 }
+
+// Storage exports
+export const getStorageInstance = getStorage
+export const getStorageRef = storageRef
+export const uploadBytesToStorage = uploadBytes
+export const getDownloadURLFromStorage = getDownloadURL
+export type { UploadResult }
 
 export async function ensureUserDoc(user: User, username?: string) {
   if (!db) return

@@ -34,6 +34,9 @@ import {
   where,
   limit,
   getDocs,
+  getStorageRef,
+  uploadBytesToStorage,
+  getDownloadURLFromStorage,
 } from "@/lib/firebase"
 
 type Comment = {
@@ -59,6 +62,8 @@ type Cry = {
   username: string
   likes: string[]
   comments: Comment[]
+  photos?: string[]
+  audioUrls?: string[]
 }
 
 type UserProfile = {
@@ -324,6 +329,104 @@ export default function TeardropApp() {
   const [locationTag, setLocationTag] = useState("")
   const [description, setDescription] = useState("")
   const [miniMarker, setMiniMarker] = useState<{ lat: number; lng: number } | null>(null)
+  // Media state
+  const [selectedPhotos, setSelectedPhotos] = useState<File[]>([])
+  const [selectedAudioBlobs, setSelectedAudioBlobs] = useState<Blob[]>([])
+  const [isRecording, setIsRecording] = useState(false)
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
+  const [recordingStartAt, setRecordingStartAt] = useState<number | null>(null)
+  const [savingCry, setSavingCry] = useState(false)
+
+  // Pick best supported audio mime type for MediaRecorder
+  function getBestAudioMime(): { mimeType: string; ext: string } {
+    const candidates: { mimeType: string; ext: string }[] = [
+      { mimeType: "audio/webm;codecs=opus", ext: "webm" },
+      { mimeType: "audio/webm", ext: "webm" },
+      // Safari fallback (if supported in current version)
+      { mimeType: "audio/mp4", ext: "m4a" },
+      { mimeType: "audio/mpeg", ext: "mp3" },
+    ]
+    for (const c of candidates) {
+      // Some browsers throw or return false for unsupported types
+      try {
+        if ((window as any).MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c.mimeType)) {
+          return c
+        }
+      } catch {}
+    }
+    // Last resort lets MediaRecorder pick default; assume webm
+    return { mimeType: "", ext: "webm" }
+  }
+
+  // --- Edit media for an existing cry (details view) ---
+  async function removePhotoFromCry(cry: Cry, index: number) {
+    try {
+      const newPhotos = (cry.photos || []).filter((_, i) => i !== index)
+      await updateDoc(doc(getFirebase().db, "cries", cry.id), { photos: newPhotos })
+      setCries((prev) => prev.map((c) => (c.id === cry.id ? { ...c, photos: newPhotos } as Cry : c)))
+      if (viewCry && viewCry.id === cry.id) setViewCry({ ...cry, photos: newPhotos })
+    } catch (e) {
+      alert("Failed to remove photo. Please try again.")
+    }
+  }
+
+  async function removeAudioFromCry(cry: Cry, index: number) {
+    try {
+      const newAudios = (cry.audioUrls || []).filter((_, i) => i !== index)
+      await updateDoc(doc(getFirebase().db, "cries", cry.id), { audioUrls: newAudios })
+      setCries((prev) => prev.map((c) => (c.id === cry.id ? { ...c, audioUrls: newAudios } as Cry : c)))
+      if (viewCry && viewCry.id === cry.id) setViewCry({ ...cry, audioUrls: newAudios })
+    } catch (e) {
+      alert("Failed to remove audio. Please try again.")
+    }
+  }
+
+  async function addPhotosToCry(cry: Cry, files: FileList | null) {
+    if (!files || files.length === 0) return
+    try {
+      const { storage } = getFirebase()
+      if (!storage) throw new Error("Storage not initialized")
+      const uploads: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]
+        const path = `users/${cry.userId}/cries/${cry.id}/photos/${Date.now()}-${f.name}`
+        const ref = getStorageRef(storage, path)
+        await uploadBytesToStorage(ref, f)
+        const url = await getDownloadURLFromStorage(ref)
+        uploads.push(url)
+      }
+      const merged = [ ...(cry.photos || []), ...uploads ]
+      await updateDoc(doc(getFirebase().db, "cries", cry.id), { photos: merged })
+      setCries((prev) => prev.map((c) => (c.id === cry.id ? { ...c, photos: merged } as Cry : c)))
+      if (viewCry && viewCry.id === cry.id) setViewCry({ ...cry, photos: merged })
+    } catch (e) {
+      alert("Failed to add photos. Please try again.")
+    }
+  }
+
+  async function addAudioFilesToCry(cry: Cry, files: FileList | null) {
+    if (!files || files.length === 0) return
+    try {
+      const { storage } = getFirebase()
+      if (!storage) throw new Error("Storage not initialized")
+      const uploads: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]
+        const ext = f.name.split(".").pop() || "webm"
+        const path = `users/${cry.userId}/cries/${cry.id}/audio/${Date.now()}-${i}.${ext}`
+        const ref = getStorageRef(storage, path)
+        await uploadBytesToStorage(ref, f)
+        const url = await getDownloadURLFromStorage(ref)
+        uploads.push(url)
+      }
+      const merged = [ ...(cry.audioUrls || []), ...uploads ]
+      await updateDoc(doc(getFirebase().db, "cries", cry.id), { audioUrls: merged })
+      setCries((prev) => prev.map((c) => (c.id === cry.id ? { ...c, audioUrls: merged } as Cry : c)))
+      if (viewCry && viewCry.id === cry.id) setViewCry({ ...cry, audioUrls: merged })
+    } catch (e) {
+      alert("Failed to add audio. Please try again.")
+    }
+  }
 
   const [successOpen, setSuccessOpen] = useState(false)
 
@@ -780,6 +883,21 @@ export default function TeardropApp() {
       alert("Please rate your cry")
       return
     }
+    if (savingCry) return
+    setSavingCry(true)
+    // Enforce free tier limits client-side (premium unlimited)
+    if (!user.isPremium) {
+      if (selectedPhotos.length > 3) {
+        alert("Free plan allows up to 3 photos. Please remove some.")
+        setSavingCry(false)
+        return
+      }
+      if (selectedAudioBlobs.length > 1) {
+        alert("Free plan allows 1 voice note. Please remove extras.")
+        setSavingCry(false)
+        return
+      }
+    }
     const now = new Date().toISOString()
     const country = detectCountry(miniMarker.lat, miniMarker.lng)
     const newCry: Cry = {
@@ -797,22 +915,63 @@ export default function TeardropApp() {
       username: user.username,
       likes: [],
       comments: [],
+      photos: [],
+      audioUrls: [],
     }
     // Local first
     setCries((prev) => [newCry, ...prev])
-    // Firestore
+    // Firestore & Storage
     try {
-      await setDoc(doc(getFirebase().db, "cries", newCry.id), newCry)
+      // Upload media to Storage and collect URLs
+      const { storage, db } = getFirebase()
+      if ((selectedPhotos.length > 0 || selectedAudioBlobs.length > 0) && !storage) {
+        alert("Storage not initialized. Please refresh and try again.")
+        setSavingCry(false)
+        return
+      }
+      const photoUrls: string[] = []
+      for (let i = 0; i < selectedPhotos.length; i++) {
+        const file = selectedPhotos[i]
+        const path = `users/${user.uid}/cries/${newCry.id}/photos/${i}-${file.name}`
+        const ref = getStorageRef(storage, path)
+        await uploadBytesToStorage(ref, file)
+        const url = await getDownloadURLFromStorage(ref)
+        photoUrls.push(url)
+      }
+      const audioUrls: string[] = []
+      for (let i = 0; i < selectedAudioBlobs.length; i++) {
+        const blob = selectedAudioBlobs[i]
+        const guessedExt = (blob.type.includes("mp4") || blob.type.includes("m4a")) ? "m4a" : (blob.type.includes("mpeg") ? "mp3" : "webm")
+        const path = `users/${user.uid}/cries/${newCry.id}/audio/${i}.${guessedExt}`
+        const ref = getStorageRef(storage, path)
+        await uploadBytesToStorage(ref, blob)
+        const url = await getDownloadURLFromStorage(ref)
+        audioUrls.push(url)
+      }
+
+      const toSave: Cry = { ...newCry, photos: photoUrls, audioUrls }
+      await setDoc(doc(db, "cries", newCry.id), toSave)
+      // Update local state so media is visible immediately without reloading
+      setCries((prev) => prev.map((c) => (c.id === newCry.id ? toSave : c)))
+      if (viewCry && viewCry.id === newCry.id) {
+        setViewCry(toSave)
+      }
       // Optionally increment stats
-      const userRef = doc(getFirebase().db, "users", user.uid)
+      const userRef = doc(db, "users", user.uid)
       const snap = await getDoc(userRef)
       const prevCount = (snap.exists() ? (snap.data() as any)?.stats?.cries : 0) || 0
       await updateDoc(userRef, { "stats.cries": prevCount + 1 })
     } catch (e) {
-      console.error("Saving cry to Firestore failed", e)
+      console.error("Saving cry failed", e)
+      alert(e instanceof Error ? e.message : "Failed to save cry. Please try again.")
+      setSavingCry(false)
+      return
     }
     setCryOpen(false)
     setSuccessOpen(true)
+    setSelectedPhotos([])
+    setSelectedAudioBlobs([])
+    setSavingCry(false)
   }
 
   function openCryInfo(cry: Cry) {
@@ -1976,12 +2135,147 @@ export default function TeardropApp() {
               />
             </div>
 
+            {/* Photos */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-semibold">Photos</div>
+                {!user?.isPremium && (
+                  <div className="text-xs text-orange-400">Free: up to 3 photos</div>
+                )}
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || [])
+                  setSelectedPhotos((prev) => {
+                    const next = [...prev, ...files]
+                    if (user?.isPremium) return next
+                    return next.slice(0, 3)
+                  })
+                }}
+                className="block w-full text-sm text-zinc-300 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-zinc-700 file:text-white hover:file:bg-zinc-600"
+              />
+              {selectedPhotos.length > 0 && (
+                <div className="mt-2 grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {selectedPhotos.map((f, i) => {
+                    const url = URL.createObjectURL(f)
+                    return (
+                      <div key={i} className="relative group border border-zinc-800 rounded-lg overflow-hidden bg-zinc-800">
+                        <img src={url} alt={f.name} className="w-full h-24 object-cover" />
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-[10px] text-white px-1 py-0.5 truncate">
+                          {f.name}
+                        </div>
+                        <button
+                          className="absolute -top-2 -right-2 bg-zinc-900 text-white border border-zinc-700 rounded-full w-6 h-6 hidden group-hover:block"
+                          onClick={() => setSelectedPhotos((prev) => prev.filter((_, idx) => idx !== i))}
+                          title="Remove"
+                          type="button"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Voice notes */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-semibold">Voice Notes</div>
+                {!user?.isPremium && (
+                  <div className="text-xs text-orange-400">Free: up to 1 note</div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {!isRecording ? (
+                  <Button
+                    variant="secondary"
+                    className="bg-zinc-800 text-white hover:bg-zinc-700"
+                    onClick={async () => {
+                      try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+                        const { mimeType, ext } = getBestAudioMime()
+                        const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+                        const chunks: BlobPart[] = []
+                        mr.ondataavailable = (ev) => chunks.push(ev.data)
+                        mr.onstop = () => {
+                          const finalType = mimeType || (chunks[0] as any)?.type || "audio/webm"
+                          const blob = new Blob(chunks, { type: finalType })
+                          setSelectedAudioBlobs((prev) => {
+                            const next = [...prev, blob]
+                            if (user?.isPremium) return next
+                            return next.slice(0, 1)
+                          })
+                          // Stop tracks to release mic
+                          try { stream.getTracks().forEach((t) => t.stop()) } catch {}
+                        }
+                        mr.start()
+                        setRecordingStartAt(Date.now())
+                        setMediaRecorder(mr)
+                        setIsRecording(true)
+                      } catch (e) {
+                        alert("Microphone access denied")
+                      }
+                    }}
+                  >
+                    Start Recording
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    onClick={() => {
+                      try {
+                        mediaRecorder?.stop()
+                      } finally {
+                        // Ensure all tracks are stopped if available
+                        try {
+                          const s: any = (mediaRecorder as any)?.stream
+                          if (s && s.getTracks) s.getTracks().forEach((t: MediaStreamTrack) => t.stop())
+                        } catch {}
+                      }
+                      setIsRecording(false)
+                      setMediaRecorder(null)
+                    }}
+                  >
+                    Stop
+                  </Button>
+                )}
+                {isRecording && recordingStartAt && (
+                  <span className="text-xs text-zinc-400">
+                    Recording... {Math.floor((Date.now() - recordingStartAt) / 1000)}s
+                  </span>
+                )}
+              </div>
+              {selectedAudioBlobs.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {selectedAudioBlobs.map((b, i) => (
+                    <div key={i} className="flex items-center justify-between bg-zinc-800 border border-zinc-800 rounded-lg px-2 py-1">
+                      <audio controls src={URL.createObjectURL(b)} className="w-full mr-2" />
+                      <button
+                        className="text-xs text-red-400 hover:text-red-300 whitespace-nowrap"
+                        onClick={() => setSelectedAudioBlobs((prev) => prev.filter((_, idx) => idx !== i))}
+                        type="button"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <Button
               className="w-full font-bold"
               style={{ background: `linear-gradient(45deg, ${ORANGE}, #F7931E)` }}
               onClick={saveCry}
+              disabled={savingCry}
             >
-              Save Cry
+              {savingCry ? "Saving..." : "Save Cry"}
             </Button>
           </div>
         </DialogContent>
@@ -2045,6 +2339,94 @@ export default function TeardropApp() {
               </div>
 
               {viewCry.description && <p className="text-center text-zinc-300 italic mt-2">{viewCry.description}</p>}
+
+              {/* Media: Photos */}
+              {Array.isArray(viewCry.photos) && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-semibold">Photos</div>
+                    {isLoggedIn && viewCry.userId === user?.uid && (
+                      <label className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer">
+                        Add
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => addPhotosToCry(viewCry, e.target.files)}
+                        />
+                      </label>
+                    )}
+                  </div>
+                  {viewCry.photos.length === 0 ? (
+                    <div className="text-xs text-zinc-500">No photos</div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {viewCry.photos.map((url, idx) => (
+                        <div key={idx} className="relative group overflow-hidden rounded-lg border border-zinc-800 bg-zinc-800">
+                          <a href={url} target="_blank" rel="noreferrer">
+                            <img
+                              src={url}
+                              alt={`cry-photo-${idx + 1}`}
+                              loading="lazy"
+                              className="w-full h-28 object-cover hover:opacity-90"
+                            />
+                          </a>
+                          {isLoggedIn && viewCry.userId === user?.uid && (
+                            <button
+                              className="absolute top-1 right-1 text-xs bg-black/60 hover:bg-black/80 text-white rounded px-1"
+                              onClick={() => removePhotoFromCry(viewCry, idx)}
+                              title="Remove"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Media: Voice Notes */}
+              {Array.isArray(viewCry.audioUrls) && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-semibold">Voice Notes</div>
+                    {isLoggedIn && viewCry.userId === user?.uid && (
+                      <label className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer">
+                        Add
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => addAudioFilesToCry(viewCry, e.target.files)}
+                        />
+                      </label>
+                    )}
+                  </div>
+                  {viewCry.audioUrls.length === 0 ? (
+                    <div className="text-xs text-zinc-500">No voice notes</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {viewCry.audioUrls.map((url, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-zinc-800 border border-zinc-800 rounded-lg px-2 py-1">
+                          <audio controls src={url} className="w-full mr-2" />
+                          {isLoggedIn && viewCry.userId === user?.uid && (
+                            <button
+                              className="text-xs text-red-400 hover:text-red-300 whitespace-nowrap"
+                              onClick={() => removeAudioFromCry(viewCry, idx)}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-4 gap-3 mt-4">
                 <Button
