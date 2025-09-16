@@ -2,11 +2,13 @@ import type { Metadata } from 'next'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import './globals.css'
+import ServiceWorkerRegister from '@/components/sw-register'
 
 export const metadata: Metadata = {
   title: 'Teardrop',
   description: 'Teardrop is a platform for sharing your thoughts and feelings with the world.',
   generator: 'Teardrop',
+  manifest: '/manifest.webmanifest',
 }
 
 export default function RootLayout({
@@ -25,7 +27,10 @@ html {
 }
         `}</style>
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <ServiceWorkerRegister />
+      </body>
     </html>
   )
 }
