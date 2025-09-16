@@ -5,6 +5,10 @@ import {
   createUserWithEmailAndPassword as createUserWithEmailAndPasswordFirebase,
   signInWithEmailAndPassword as signInWithEmailAndPasswordFirebase,
   signInWithPopup as signInWithPopupFirebase,
+  setPersistence as setPersistenceFirebase,
+  browserLocalPersistence,
+  browserSessionPersistence,
+  inMemoryPersistence,
   signOut as signOutFirebase,
   updateProfile as updateProfileFirebase,
   GoogleAuthProvider,
@@ -74,6 +78,7 @@ export const onAuthStateChanged = onAuthStateChangedFirebase
 export const createUserWithEmailAndPassword = createUserWithEmailAndPasswordFirebase
 export const signInWithEmailAndPassword = signInWithEmailAndPasswordFirebase
 export const signInWithPopup = signInWithPopupFirebase
+export const setPersistence = setPersistenceFirebase
 export const signOut = signOutFirebase
 export const updateProfile = updateProfileFirebase
 
@@ -143,4 +148,19 @@ export async function ensureUserDoc(user: User, username?: string) {
 
     await setDocFirebase(userRef, userData)
   }
+}
+
+// Configure auth persistence with fallbacks for storage-partitioned environments (e.g., iOS WebView)
+export async function ensureAuthPersistence() {
+  if (!auth) return
+  try {
+    await setPersistenceFirebase(auth, browserLocalPersistence)
+    return
+  } catch {}
+  try {
+    await setPersistenceFirebase(auth, browserSessionPersistence)
+    return
+  } catch {}
+  // Last resort: in-memory (will not survive reloads but works without sessionStorage)
+  await setPersistenceFirebase(auth, inMemoryPersistence)
 }

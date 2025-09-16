@@ -25,6 +25,7 @@ import {
   signOut as fbSignOut,
   updateProfile,
   ensureUserDoc,
+  ensureAuthPersistence,
   setDoc,
   doc,
   updateDoc,
@@ -311,6 +312,7 @@ export default function TeardropApp() {
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
   
   useEffect(() => {
+    ensureAuthPersistence().catch(() => {})
     if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       (pos) => {
